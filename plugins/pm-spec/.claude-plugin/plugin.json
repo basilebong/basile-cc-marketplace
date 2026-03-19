@@ -1,0 +1,8 @@
+{
+  "name": "pm-spec",
+  "description": "Acts as a Product Manager to gather requirements, explore the codebase, and create feature specifications with Gherkin scenarios and file references.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Basile Bong"
+  }
+}

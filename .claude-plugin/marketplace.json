@@ -1,0 +1,23 @@
+{
+  "name": "basile-cc-marketplace",
+  "owner": {
+    "name": "Basile Bong"
+  },
+  "metadata": {
+    "description": "Basile's personal collection of reusable Claude Code skills"
+  },
+  "plugins": [
+    {
+      "name": "implement",
+      "source": "./plugins/implement",
+      "description": "Plan, implement, and review a feature or refactor using an agent team.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "pm-spec",
+      "source": "./plugins/pm-spec",
+      "description": "Acts as a Product Manager to gather requirements and create feature specifications.",
+      "version": "1.0.0"
+    }
+  ]
+}
