@@ -18,6 +18,18 @@
       "source": "./plugins/pm-spec",
       "description": "Acts as a Product Manager to gather requirements and create feature specifications.",
       "version": "1.0.0"
+    },
+    {
+      "name": "pr-reviewer",
+      "source": "./plugins/pr-reviewer",
+      "description": "Spawn a team of specialized agents to review a PR from GitHub or GitLab.",
+      "version": "1.0.0"
+    },
+    {
+      "name": "pr-review-analyzer",
+      "source": "./plugins/pr-review-analyzer",
+      "description": "Analyze PR review comments with two agents debating devil's-advocate style, then produce casual copy-pasteable replies.",
+      "version": "1.0.0"
     }
   ]
 }
