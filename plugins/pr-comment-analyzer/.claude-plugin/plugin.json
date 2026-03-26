@@ -1,5 +1,5 @@
 {
-  "name": "pr-review-analyzer",
+  "name": "pr-comment-analyzer",
   "description": "Analyze PR review comments with two agents debating devil's-advocate style, then produce casual copy-pasteable replies rated FIX or SKIP.",
   "version": "1.0.0",
   "author": {

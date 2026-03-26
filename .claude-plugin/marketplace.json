@@ -26,8 +26,8 @@
       "version": "1.0.0"
     },
     {
-      "name": "pr-review-analyzer",
-      "source": "./plugins/pr-review-analyzer",
+      "name": "pr-comment-analyzer",
+      "source": "./plugins/pr-comment-analyzer",
       "description": "Analyze PR review comments with two agents debating devil's-advocate style, then produce casual copy-pasteable replies.",
       "version": "1.0.0"
     }

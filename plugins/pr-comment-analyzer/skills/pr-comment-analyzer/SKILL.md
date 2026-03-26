@@ -1,5 +1,5 @@
 ---
-name: pr-review-analyzer
+name: pr-comment-analyzer
 description: Analyze PR review comments with two agents debating devil's-advocate style per comment, then produce casual copy-pasteable replies rated FIX or SKIP.
 ---
 
@@ -145,84 +145,76 @@ SendMessage type="shutdown_request" to "triage"
 
 ## Phase 3: Devil's Advocate Debates
 
-For all `AMBIGUOUS` comment, spawn a debate pair **within the same team**.
-The two agents debate all `AMBIGUOUS` comments, but one after the other.
-
-For comment at index `N`, spawn two agents simultaneously:
+Spawn exactly **one pair** of debate agents within the same team. These two agents will debate **all** `AMBIGUOUS` comments sequentially — one comment at a time.
 
 ```
 Agent tool:
   subagent_type: "general-purpose"
   team_name: "pr-comment-analysis"
-  name: "advocate-N"
+  name: "advocate"
   model: "opus"
 
 Agent tool:
   subagent_type: "general-purpose"
   team_name: "pr-comment-analysis"
-  name: "challenger-N"
+  name: "challenger"
   model: "sonnet"
 ```
 
-### Advocate instructions (per comment):
+### Advocate instructions:
 
-> You are the **Advocate** in a devil's-advocate debate about a PR review comment. Your job is to argue that this comment is **valid and must be fixed**.
+> You are the **Advocate** in a devil's-advocate debate about PR review comments. Your job is to argue that each comment is **valid and must be fixed**.
 >
-> **The review comment:**
-> {comment body}
-> **File:** {path}:{line}
-> **Link:** {url}
+> You will receive comments one at a time from the moderator via `SendMessage`. For each comment you receive, follow these steps:
 >
-> **The relevant code:**
-> {file content around the commented line}
->
-> **The diff:**
-> {relevant diff hunk}
->
-> Rules:
->
-> - Argue in 2-4 sentences. Be specific — cite the code.
-> - Steelman the reviewer's point. Find the strongest possible reason this matters.
-> - Send your argument to `challenger-N` via `SendMessage`.
-> - After receiving the challenger's rebuttal via `SendMessage`, you get one final response: either **double down** (with new evidence) or **concede** (if the rebuttal is genuinely strong). Be honest — don't defend a losing position just to win.
-> - Send the full exchange (your argument, their rebuttal, your final response) to the moderator via `SendMessage`.
+> 1. Read the comment, code context, and diff provided by the moderator.
+> 2. Argue in 2-4 sentences that the comment is valid. Be specific — cite the code. Steelman the reviewer's point.
+> 3. Send your argument to `challenger` via `SendMessage`.
+> 4. Wait for the challenger's rebuttal via `SendMessage`.
+> 5. Send one final response: either **double down** (with new evidence) or **concede** (if the rebuttal is genuinely strong). Be honest — don't defend a losing position just to win.
+> 6. Send the full exchange (your argument, their rebuttal, your final response) to the moderator via `SendMessage`.
+> 7. Wait for the next comment from the moderator, or a shutdown request.
 
-### Challenger instructions (per comment):
+### Challenger instructions:
 
-> You are the **Challenger** in a devil's-advocate debate about a PR review comment. Your job is to argue that this comment is **wrong, nitpicky, or not worth acting on**.
+> You are the **Challenger** in a devil's-advocate debate about PR review comments. Your job is to argue that each comment is **wrong, nitpicky, or not worth acting on**.
 >
-> **The review comment:**
-> {comment body}
-> **File:** {path}:{line}
-> **Link:** {url}
+> You will receive comments one at a time (relayed through the advocate's opening argument). For each round, follow these steps:
 >
-> **The relevant code:**
-> {file content around the commented line}
->
-> **The diff:**
-> {relevant diff hunk}
->
-> Rules:
->
-> - Wait for the advocate's `SendMessage` with their argument.
-> - Rebut in 2-4 sentences. Be specific — cite the code, explain why the concern doesn't apply, or why it's too minor to matter.
-> - Find the strongest possible reason this comment should be ignored. Consider: is this actually a bug or just style? Does the existing code already handle this? Is the reviewer applying a rule that doesn't fit here?
-> - Send your rebuttal to `advocate-N` via `SendMessage`.
-> - After receiving the advocate's final response via `SendMessage`, send your own final take (1-2 sentences: did they change your mind, or do you stand firm?) to the moderator via `SendMessage`.
+> 1. Wait for the advocate's argument via `SendMessage`.
+> 2. Rebut in 2-4 sentences. Be specific — cite the code, explain why the concern doesn't apply, or why it's too minor to matter. Find the strongest possible reason this comment should be ignored. Consider: is this actually a bug or just style? Does the existing code already handle this? Is the reviewer applying a rule that doesn't fit here?
+> 3. Send your rebuttal to `advocate` via `SendMessage`.
+> 4. Wait for the advocate's final response via `SendMessage`.
+> 5. Send your own final take (1-2 sentences: did they change your mind, or do you stand firm?) to the moderator via `SendMessage`.
+> 6. Wait for the next round, or a shutdown request.
 
-### Collect and judge
+### Moderator flow (sequential)
 
-As each advocate sends the full exchange transcript, render a verdict:
+For each `AMBIGUOUS` comment, in order:
+
+1. Send the comment details to the `advocate` via `SendMessage`:
+   - Comment body, file path, line number, link
+   - The relevant code around the commented line
+   - The relevant diff hunk
+2. Wait for the advocate to send the full exchange transcript back.
+3. Wait for the challenger to send their final take back.
+4. Render a verdict before moving to the next comment.
+5. Repeat for the next `AMBIGUOUS` comment.
+
+### Verdicts
+
+For each debated comment, render a verdict:
 
 - **FIX** — the advocate's argument held up. The comment is valid.
 - **SKIP** — the challenger won. The comment is not worth acting on.
 
 Judge based on the strength of arguments, not on who spoke last. If genuinely 50/50, default to **FIX** — better to address a valid concern than to ignore it.
 
-After all debates complete, shut down all debate agents:
+After all debates are complete, shut down both agents:
 
 ```
-SendMessage type="shutdown_request" to each advocate-N and challenger-N
+SendMessage type="shutdown_request" to "advocate"
+SendMessage type="shutdown_request" to "challenger"
 ```
 
 ---
