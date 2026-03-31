@@ -38,6 +38,7 @@ Pass the planner:
 - Any relevant spec content from `docs/specs/`
 - The current branch name and any existing diff
 - Instructions to **actively explore the codebase** — read relevant files, search for existing patterns, understand how similar features are implemented — before producing the plan
+- **The plan must be implementation-ready**: precise enough that a developer can start coding immediately without needing to explore the codebase themselves. Every change must specify exact file paths and exact locations (function name, line range). Where relevant, reference example files/snippets the implementer should mirror. The implementer writes the code — the planner's job is to eliminate all ambiguity about *where* and *how*.
 - Instructions to send the plan to the moderator via `SendMessage` once ready
 - Instructions to then **stay alive and wait** — the implementer may send questions via `SendMessage`, and the planner should answer them with additional codebase lookups, then send the answer back via `SendMessage` to the implementer
 
@@ -49,21 +50,25 @@ The planner must send a message in this format:
 ### Goal
 <one sentence>
 
-### Exploration Findings
-- Relevant files and patterns discovered
-- Existing conventions to follow
-- Similar implementations in the codebase
+### Changes
 
-### Files to Create/Modify
-- path/to/file.ts — what changes and why
+#### `path/to/file.ts` (create | modify)
 
-### Steps
-1. ...
-2. ...
+**Why:** one-line reason for this change
+
+**Where:** exact function/class/line-range where the change goes
+
+**What:** description of what to add/change/remove
+
+**Example to follow:** (only if relevant) cite a specific file + line range that uses the same pattern
+
+(repeat for each change location)
 
 ### Out of Scope
 - things explicitly not being done
 ```
+
+**Critical:** The planner must read every file it references. Every file path, function name, and line range must come from actual file reads during exploration — never guessed.
 
 Wait for the planner's `SendMessage`. Capture the plan. The planner stays alive for the duration of the implementation phase.
 
@@ -92,10 +97,12 @@ Pass the implementer:
 - The user's task
 - The implementation plan from Phase 1
 - If `round > 1`: the reviewer feedback from the previous round, with instructions to fix all BLOCKING issues
+- **Instructions to start coding immediately** — the plan contains exact file paths, locations, and what to change. Do not re-explore the codebase; go straight to writing code based on the plan.
+- **Role: Senior architect-level developer.** Write clean, readable, type-safe, and secure code. Follow best practices and established conventions in the codebase. Every decision should prioritize correctness, safety, and maintainability.
 - Instructions to work directly on the current branch (no worktree)
 - Instructions to follow all project rules from CLAUDE.md (frontend rules, backend rules, etc.)
 - Instructions NOT to commit — just modify files
-- Instructions to use `SendMessage` to the `planner` agent if they have questions about codebase patterns or unclear requirements, and wait for the planner's `SendMessage` reply before continuing
+- Instructions to use `SendMessage` to the `planner` agent only if something in the plan is genuinely unclear or wrong, and wait for the planner's `SendMessage` reply before continuing
 - Instructions to use `SendMessage` to the moderator when done, with a summary of what was changed
 
 Wait for the implementer's completion `SendMessage`. Forward any planner↔implementer exchanges as needed.
