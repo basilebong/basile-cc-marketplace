@@ -10,8 +10,8 @@
     {
       "name": "implement",
       "source": "./plugins/implement",
-      "description": "Plan, implement, and review a feature or refactor using an agent team.",
-      "version": "1.0.0"
+      "description": "Plan, implement, and review a feature or refactor using an agent team. Loops until reviewer approves or 3 rounds exhausted.",
+      "version": "1.1.0"
     },
     {
       "name": "pm-spec",
@@ -22,8 +22,8 @@
     {
       "name": "pr-reviewer",
       "source": "./plugins/pr-reviewer",
-      "description": "Spawn a team of specialized agents to review a PR from GitHub or GitLab.",
-      "version": "1.0.0"
+      "description": "Spawn a team of specialized agents to review a PR from GitHub or GitLab, score issues on a 0-100 confidence scale, and filter to high-confidence findings.",
+      "version": "2.0.0"
     },
     {
       "name": "pr-comment-analyzer",

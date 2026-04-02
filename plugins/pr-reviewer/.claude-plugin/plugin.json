@@ -1,7 +1,7 @@
 {
   "name": "pr-reviewer",
-  "description": "Spawn a team of specialized agents (Security, Logic, UX, Conventions) to review a PR from GitHub or GitLab, classify issues as blocking/non-blocking, and present a consolidated verdict.",
-  "version": "1.0.0",
+  "description": "Spawn a team of specialized agents (Security, Logic, UX, Conventions) to review a PR from GitHub or GitLab, score each issue on a 0-100 confidence scale, and filter to high-confidence findings.",
+  "version": "2.0.0",
   "author": {
     "name": "Basile Bong"
   }

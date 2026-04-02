@@ -1,11 +1,11 @@
 ---
 name: pr-reviewer
-description: Spawn a team of specialized agents (Security, Logic, UX, Conventions) to review a PR from GitHub or GitLab, classify issues as blocking/non-blocking, and present a consolidated verdict.
+description: Spawn a team of specialized agents (Security, Logic, UX, Conventions) to review a PR from GitHub or GitLab, score each issue on a 0-100 confidence scale, and filter to high-confidence findings.
 ---
 
 # PR Reviewer — Multi-Agent Code Review
 
-Detect the hosting platform (GitHub or GitLab), fetch PR changes, read any local uncommitted diff, then spawn a team of four specialized reviewers. Collect every finding and present a consolidated report.
+Detect the hosting platform (GitHub or GitLab), fetch PR changes, read any local uncommitted diff, then spawn a team of four specialized reviewers. Independently score each issue on a 0–100 confidence scale using Haiku agents, filter to high-confidence findings (≥ 80), and present the results.
 
 ---
 
@@ -86,19 +86,21 @@ git diff HEAD
 
 Store as `$LOCAL_DIFF`. If non-empty, it will be provided to reviewers alongside the PR diff so they can review pending changes too.
 
-### Step 5 — Read modified files
+### Step 5 — Read CLAUDE.md files
+
+Find all relevant CLAUDE.md files: the root CLAUDE.md (if one exists), plus any CLAUDE.md files in directories whose files the PR modified. Read the **full contents** of each. Store as `$CLAUDE_MD_CONTENTS` (a map of path → content).
+
+### Step 6 — Summarize the PR (Haiku)
+
+Launch a **Haiku** agent to view the PR diff and metadata, and return a concise summary of the change. Store as `$PR_SUMMARY`.
+
+### Step 7 — Read modified files
 
 From `$PR_DIFF`, extract the list of modified files. Read the full current content of each file so reviewers have complete context, not just hunks.
 
 ---
 
 ## Phase 2: Spawn Reviewer Team
-
-Create the team:
-
-```
-TeamCreate: team_name="pr-review", description="PR review for: <PR title>"
-```
 
 Spawn all four reviewers **in parallel** using the `Agent` tool:
 
@@ -109,69 +111,65 @@ Spawn all four reviewers **in parallel** using the `Agent` tool:
 | `ux`          | `sonnet` | UX & Accessibility       |
 | `conventions` | `sonnet` | Conventions & Quality    |
 
-Pass **each** reviewer:
+Embed **all context inline** in each agent's prompt so they do not need to fetch anything. Pass **each** reviewer:
 
 - `$PR_DIFF` (the full PR diff)
 - `$LOCAL_DIFF` (uncommitted changes, if any — clearly labeled as "uncommitted, not yet part of the PR")
 - `$PR_META` (title, description, existing comments)
-- The full content of all modified files
+- `$PR_SUMMARY` (the summary from Phase 1)
+- `$CLAUDE_MD_CONTENTS` (the full contents of all relevant CLAUDE.md files, labeled by path)
+- The full content of all modified files (labeled by path)
 - Their specific review prompt (see Reviewer Prompts below)
-- The names of all other reviewers on the team (`security`, `logic`, `ux`, `conventions`) so they can message each other directly
-- Instructions to classify every finding as **BLOCKING** or **NON-BLOCKING**
-- Instructions to end with a verdict: **APPROVE** (no blocking issues) or **BLOCK** (one or more blocking issues)
-- Instructions to send findings back to the moderator via `SendMessage`, then **wait** — the moderator will share all findings and initiate a cross-review challenge round
+- Instructions to report every finding as an **issue** with a description and justification — do NOT classify severity (scoring happens later)
+- Instructions to return findings directly (the agent's return value is its report)
+- **"All context you need is provided above. Do NOT run git commands, gh/glab commands, or re-fetch the diff. You MAY read additional files if you need to trace an import, check a function signature, or understand a dependency — but do not re-read files already provided."**
 
-Wait for all four reviewers to send their findings via `SendMessage`.
-
----
-
-## Phase 3: Cross-Review Challenge Round
-
-After collecting all four initial reports, initiate a **challenge round** where reviewers actively scrutinize each other's findings. This is not optional — it always happens.
-
-### Step 1 — Share all findings
-
-Send each reviewer a `SendMessage` containing the **full findings from all other reviewers**. Include a clear instruction:
-
-> "Here are the findings from the other three reviewers. Your job now is to **challenge** them:
->
-> 1. **Challenge BLOCKING findings you think are wrong or overstated** — explain why the severity should be downgraded or the finding dropped entirely. Be specific: cite the code, explain why the concern doesn't apply.
-> 2. **Challenge APPROVE verdicts where you think the other reviewer missed something** in your area of overlap. For example: Security might notice the Logic reviewer missed an auth check; Conventions might notice the UX reviewer missed an i18n string.
-> 3. **Escalate your own NON-BLOCKING findings** if another reviewer's findings reveal they should actually be BLOCKING (e.g., you flagged a missing null check as NON-BLOCKING, but Logic found a code path that actually hits it).
-> 4. **Concede** if another reviewer's challenge of your own finding is valid — explicitly say 'I concede [finding X], downgrading to NON-BLOCKING' or 'I concede [finding X], dropping it'.
->
-> Do NOT rubber-stamp. If everything looks correct, say so and explain why — but look hard. Send your challenges back to the moderator via `SendMessage`."
-
-### Step 2 — Collect challenges
-
-Wait for all four reviewers to respond with their challenges.
-
-### Step 3 — Resolve disputes
-
-For each disputed finding (where a reviewer challenged another's finding):
-
-1. Forward the challenge to the original reviewer via `SendMessage`, along with the challenger's reasoning.
-2. The original reviewer must either **defend** (with specific code-level justification) or **concede**.
-3. Wait for the response. One round of defense is enough.
-4. If the original reviewer defends convincingly, keep the finding at its original severity.
-5. If the defense is weak or the reviewer concedes, adjust the severity.
-6. If genuinely unresolvable, default to **BLOCKING** — err on the side of caution.
-
-### Step 4 — Shutdown
-
-Shut down all reviewers:
-
-```
-SendMessage type="shutdown_request" to each reviewer
-```
-
-Call `TeamDelete` to clean up.
+Do **not** use a team or `SendMessage`. Spawn each reviewer as a standalone `Agent` call (not `run_in_background`) so it returns its findings directly and terminates immediately when done.
 
 ---
 
-## Phase 4: Consolidated Report
+## Phase 3: Confidence Scoring
 
-Present **every** finding from **every** reviewer. Do not omit, summarize away, or merge findings. Group by reviewer, then by severity.
+For **each issue** from Phase 2, launch a parallel **Haiku** agent to score confidence. Each scoring agent receives everything inline — it should NOT run any commands or read any files:
+
+- The PR diff
+- The issue description and the reviewer's justification
+- `$CLAUDE_MD_CONTENTS` (the full contents of all relevant CLAUDE.md files, so the agent can verify CLAUDE.md-based issues without reading files)
+
+The agent scores the issue on a 0–100 scale. Give each scoring agent this rubric **verbatim**:
+
+> Score each issue on a scale from 0–100 indicating your confidence that the issue is real and worth fixing:
+>
+> - **0:** Not confident at all. This is a false positive that doesn't stand up to light scrutiny, or is a pre-existing issue.
+> - **25:** Somewhat confident. This might be a real issue, but may also be a false positive. You weren't able to verify it. If the issue is stylistic, it was not explicitly called out in the relevant CLAUDE.md.
+> - **50:** Moderately confident. You verified this is a real issue, but it might be a nitpick or not happen very often in practice. Relative to the rest of the PR, it's not very important.
+> - **75:** Highly confident. You double-checked the issue and verified it is very likely real and will be hit in practice. The existing approach in the PR is insufficient. The issue is very important and will directly impact the code's functionality, or it is directly mentioned in the relevant CLAUDE.md.
+> - **100:** Absolutely certain. You double-checked the issue and confirmed it is definitely real and will happen frequently in practice. The evidence directly confirms this.
+>
+> For issues flagged due to CLAUDE.md instructions, double-check that the CLAUDE.md actually calls out that issue specifically. If it doesn't, score no higher than 25.
+
+### Examples of false positives (provide to scoring agents)
+
+- Pre-existing issues not introduced by the PR
+- Something that looks like a bug but is not actually a bug
+- Pedantic nitpicks that a senior engineer wouldn't call out
+- Issues that a linter, typechecker, or compiler would catch (missing imports, type errors, formatting). Assume CI runs these separately.
+- General code quality issues (lack of test coverage, general security issues, poor documentation), unless explicitly required in CLAUDE.md
+- Issues called out in CLAUDE.md but explicitly silenced in the code (e.g. lint-ignore comment)
+- Changes in functionality that are likely intentional or directly related to the broader change
+- Real issues, but on lines the author did not modify in the PR
+
+---
+
+## Phase 4: Filter
+
+Discard all issues scoring **below 80**. If no issues survive, skip to the report and output "No issues found."
+
+---
+
+## Phase 5: Consolidated Report
+
+Present **every surviving issue** (score ≥ 80). Group by reviewer, sorted by confidence score descending.
 
 ```markdown
 ## PR Review Report
@@ -183,66 +181,61 @@ Present **every** finding from **every** reviewer. Do not omit, summarize away, 
 
 ---
 
-### Final Verdict: APPROVE | BLOCK
+### Summary
 
-**Blocking issues:** <count>
-**Non-blocking issues:** <count>
+<$PR_SUMMARY from Phase 1>
+
+---
+
+### Issues Found: <count> (from <total pre-filter count> candidates)
 
 ---
 
 ### Security (Opus)
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- `file:line` — description + justification
-
-#### Non-Blocking
-- `file:line` — description + justification
+- [<score>] `file:line` — description + justification
 
 ---
 
 ### Logic & Correctness (Opus)
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- `file:line` — description + justification
-
-#### Non-Blocking
-- `file:line` — description + justification
+- [<score>] `file:line` — description + justification
 
 ---
 
 ### UX & Accessibility (Sonnet)
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- `file:line` — description + justification
-
-#### Non-Blocking
-- `file:line` — description + justification
+- [<score>] `file:line` — description + justification
 
 ---
 
 ### Conventions & Quality (Sonnet)
 
-**Verdict:** APPROVE | BLOCK
+- [<score>] `file:line` — description + justification
 
-#### Blocking
-- `file:line` — description + justification
+### Filtered Out (<count> issues below threshold)
+- [<score>] <reviewer>: <brief description> — reason for low confidence
+```
 
-#### Non-Blocking
-- `file:line` — description + justification
+If no issues survived filtering:
+
+```markdown
+## PR Review Report
+
+**PR:** <title>
+**Branch:** <branch>
+**Platform:** GitHub | GitLab
 
 ---
 
-### Challenge Round Outcomes
-- <challenged finding> — Challenger: <reviewer> — Resolution: **Upheld** | **Downgraded** | **Dropped** | **Escalated** — Reasoning: <one sentence>
-```
+### Summary
 
-The overall verdict is **APPROVE** only if all four reviewers approve. If any reviewer blocks, the overall verdict is **BLOCK**.
+<$PR_SUMMARY>
+
+---
+
+No issues found. Reviewed <count> candidates across Security, Logic, UX, and Conventions — all scored below the confidence threshold.
+```
 
 ---
 
@@ -252,29 +245,24 @@ The overall verdict is **APPROVE** only if all four reviewers approve. If any re
 
 **Model:** `opus`
 
-You are a security reviewer. You will receive a PR diff, the full content of modified files, and optionally uncommitted local changes.
+You are a security reviewer. All context is provided inline: the PR diff, the full content of modified files, the contents of relevant CLAUDE.md files, and optionally uncommitted local changes. Do NOT run git/gh/glab commands or re-fetch the diff. You MAY read additional files only to trace imports or check dependencies.
+
+Note any security-related rules from the provided CLAUDE.md contents.
 
 Find: XSS, SQL injection, command injection, SSRF, path traversal, hardcoded secrets/credentials, authentication and authorization gaps, missing input validation at system boundaries, insecure data exposure, unsafe deserialization, CSRF vulnerabilities, open redirects.
 
-For each finding, explain the attack vector and impact.
-
-Classify each as **BLOCKING** (exploitable vulnerability or missing security control) or **NON-BLOCKING** (hardening suggestion, defense-in-depth improvement).
+For each finding, explain the attack vector and impact. Do NOT classify severity — just report the issue with justification.
 
 Format:
 
 ```
 ### Security
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- [BLOCKING] file:line — description + attack vector + impact
-
-#### Non-Blocking
-- [NON-BLOCKING] file:line — description + suggestion
+- file:line — description + attack vector + impact
+- file:line — description + attack vector + impact
 ```
 
-Send findings to the moderator via `SendMessage`. Then **wait** — the moderator will share all other reviewers' findings for you to challenge. When you receive them, actively look for: Logic findings that miss security implications, UX findings that ignore security constraints, Conventions findings that contradict security best practices. Challenge anything you disagree with.
+Return your findings as your final output.
 
 ---
 
@@ -282,27 +270,24 @@ Send findings to the moderator via `SendMessage`. Then **wait** — the moderato
 
 **Model:** `opus`
 
-You are a logic and correctness reviewer. You will receive a PR diff, the full content of modified files, and optionally uncommitted local changes.
+You are a logic and correctness reviewer. All context is provided inline: the PR diff, the full content of modified files, the contents of relevant CLAUDE.md files, and optionally uncommitted local changes. Do NOT run git/gh/glab commands or re-fetch the diff. You MAY read additional files only to trace imports or check dependencies.
+
+Note any correctness-related rules from the provided CLAUDE.md contents.
 
 Trace every changed function path. Find: wrong boolean conditions, missing null/undefined checks, off-by-one errors, race conditions, broken async/await chains, unhandled promise rejections, stale closures, infinite loops or recursion, incorrect state transitions, unhandled edge cases, type mismatches that slip past the compiler.
 
-Classify each as **BLOCKING** (definite or likely bug, data corruption, regression) or **NON-BLOCKING** (potential improvement, defensive suggestion).
+For each finding, explain why it's a bug and the expected impact. Do NOT classify severity — just report the issue with justification.
 
 Format:
 
 ```
 ### Logic & Correctness
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- [BLOCKING] file:line — description + justification
-
-#### Non-Blocking
-- [NON-BLOCKING] file:line — description + suggestion
+- file:line — description + justification
+- file:line — description + justification
 ```
 
-Send findings to the moderator via `SendMessage`. Then **wait** — the moderator will share all other reviewers' findings for you to challenge. When you receive them, actively look for: Security findings that are theoretically possible but practically unreachable given the code paths, UX findings that ignore correctness constraints, Conventions findings that miss actual bugs. Challenge anything you disagree with.
+Return your findings as your final output.
 
 ---
 
@@ -310,27 +295,24 @@ Send findings to the moderator via `SendMessage`. Then **wait** — the moderato
 
 **Model:** `sonnet`
 
-You are a UX and accessibility reviewer. You will receive a PR diff, the full content of modified files, and optionally uncommitted local changes.
+You are a UX and accessibility reviewer. All context is provided inline: the PR diff, the full content of modified files, the contents of relevant CLAUDE.md files, and optionally uncommitted local changes. Do NOT run git/gh/glab commands or re-fetch the diff. You MAY read additional files only to trace imports or check dependencies.
+
+Note any UX/accessibility-related rules from the provided CLAUDE.md contents.
 
 Evaluate: user-facing flows (are they intuitive?), feedback states (loading, error, success, empty states — are they all handled?), accessibility (keyboard navigation, screen reader support, focus management, ARIA attributes, color contrast), i18n readiness (are all user-facing strings translatable?), responsive behavior, form UX (validation feedback, disabled states, required field indicators).
 
-Classify each as **BLOCKING** (broken user flow, inaccessible interaction, missing critical feedback state) or **NON-BLOCKING** (UX improvement, minor a11y enhancement).
+For each finding, explain the user impact. Do NOT classify severity — just report the issue with justification.
 
 Format:
 
 ```
 ### UX & Accessibility
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- [BLOCKING] file:line — description + user impact
-
-#### Non-Blocking
-- [NON-BLOCKING] file:line — description + suggestion
+- file:line — description + user impact
+- file:line — description + user impact
 ```
 
-Send findings to the moderator via `SendMessage`. Then **wait** — the moderator will share all other reviewers' findings for you to challenge. When you receive them, actively look for: findings that hurt usability under the guise of security, Logic findings that miss UX edge cases (what happens when the user does X?), Convention violations that other reviewers didn't catch. Challenge anything you disagree with.
+Return your findings as your final output.
 
 ---
 
@@ -338,61 +320,36 @@ Send findings to the moderator via `SendMessage`. Then **wait** — the moderato
 
 **Model:** `sonnet`
 
-You are a conventions and code quality reviewer. You will receive a PR diff, the full content of modified files, and optionally uncommitted local changes.
+You are a conventions and code quality reviewer. All context is provided inline: the PR diff, the full content of modified files, the contents of relevant CLAUDE.md files, and optionally uncommitted local changes. Do NOT run git/gh/glab commands or re-fetch the diff. You MAY read additional files only to trace imports or check dependencies.
 
-Check against project conventions found in CLAUDE.md and any `.claude/` rules. Common things to look for:
+The provided CLAUDE.md contents are your primary source of truth for project conventions. Also check `.claude/` rules if referenced.
+
+Common things to look for:
 
 - **Frontend:** no `as` type assertions, no `Optional[...]`, correct import order, `Box`/`List`/`Flex`/`FlexItem` from `@moblin/chakra-ui` (not Chakra Stack/VStack/HStack), correct i18n usage (`intl.$t()` / `FormattedMessage`), icons via `@ul/icons` with `<Icon as={...}>`, no `.otherwise()` in ts-pattern matches, proper form patterns with React Hook Form
 - **Backend:** `str | None` not `Optional[str]`, `get_val()` in serializer `validate()`, no N+1 queries (check for `select_related`/`prefetch_related`), proper error arrays in ValidationError
 - **General:** naming conventions (PascalCase components, camelCase hooks, kebab-case files), dead code, unnecessary complexity, missing error handling at system boundaries, performance issues (queries in loops, missing memoization where clearly needed)
 
-Classify each as **BLOCKING** (convention violation that causes functional issues, N+1 query, performance regression) or **NON-BLOCKING** (style nitpick, minor convention deviation, improvement suggestion).
+For each finding, cite the convention source (CLAUDE.md rule, code comment, etc.). Do NOT classify severity — just report the issue with justification.
 
 Format:
 
 ```
 ### Conventions & Quality
 
-**Verdict:** APPROVE | BLOCK
-
-#### Blocking
-- [BLOCKING] file:line — description + justification
-
-#### Non-Blocking
-- [NON-BLOCKING] file:line — description + convention reference
+- file:line — description + convention reference
+- file:line — description + convention reference
 ```
 
-Send findings to the moderator via `SendMessage`. Then **wait** — the moderator will share all other reviewers' findings for you to challenge. When you receive them, actively look for: findings that are technically correct but practically irrelevant, Logic/Security findings that miss convention-level implications (e.g., a "correct" fix that violates project patterns), over-engineered suggestions from other reviewers. Challenge anything you disagree with.
-
----
-
-## What Counts as Blocking
-
-**Blocking (must fix before merge):**
-
-- Definite or likely bug (wrong logic, missing null check, race condition)
-- Security vulnerability (injection, auth bypass, data exposure)
-- Data loss or corruption risk
-- Regression that breaks existing functionality
-- N+1 query or severe performance degradation
-- Broken user flow or inaccessible critical interaction
-- Missing critical feedback state (no error handling for a user action)
-
-**Non-Blocking (suggestions for improvement):**
-
-- Stylistic preference or nitpick
-- Minor improvement suggestion
-- Convention violation with no functional impact
-- Missing optimization that does not cause real problems
-- UX polish or minor accessibility enhancement
-- Defense-in-depth hardening with no current exploit path
+Return your findings as your final output.
 
 ---
 
 ## Important Rules
 
-- **Never omit findings.** Every issue from every reviewer must appear in the final report.
 - **Preserve file:line references.** The user needs to locate issues quickly.
 - **Uncommitted changes are clearly labeled.** If `$LOCAL_DIFF` is non-empty, prefix those findings with `[UNCOMMITTED]` so the user knows they are not yet part of the PR.
 - **No auto-fixing.** This skill only reviews — it does not modify code.
 - **Fail gracefully.** If `gh`/`glab` is not installed or not authenticated, tell the user what to run and stop. Do not proceed without the PR diff.
+- **Scoring is independent.** The Haiku scoring agents must NOT see each other's scores — each scores independently to avoid anchoring bias.
+- **Show filtered issues.** The report includes a "Filtered Out" section so the user can see what was considered but didn't meet the threshold.
