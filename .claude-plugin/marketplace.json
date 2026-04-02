@@ -11,7 +11,7 @@
       "name": "implement",
       "source": "./plugins/implement",
       "description": "Plan, implement, and review a feature or refactor using an agent team. Loops until reviewer approves or 3 rounds exhausted.",
-      "version": "1.1.0"
+      "version": "1.2.0"
     },
     {
       "name": "pm-spec",

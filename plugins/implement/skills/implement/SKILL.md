@@ -5,7 +5,7 @@ description: Plan, implement, and review a feature or refactor using an agent te
 
 # Implement — Agentic Plan-Implement-Review Loop
 
-Orchestrate a team of specialized agents: a planner (exploration), an implementer (coding), and four code reviewers (same team structure as `pr-reviewer`). Agents communicate via `SendMessage`. Loop until approved or 3 rounds exhausted.
+Orchestrate a team of specialized agents: a planner (exploration), an implementer (coding), and four standalone code reviewers with confidence scoring (same review style as `pr-reviewer`). The planner and implementer communicate via `SendMessage`; reviewers are standalone agents scored by Haiku. Loop until approved or 3 rounds exhausted.
 
 ## Setup
 
@@ -96,7 +96,7 @@ Pass the implementer:
 
 - The user's task
 - The implementation plan from Phase 1
-- If `round > 1`: the reviewer feedback from the previous round, with instructions to fix all BLOCKING issues
+- If `round > 1`: the reviewer feedback from the previous round (issues scoring ≥ 80 with confidence scores), with instructions to fix all high-confidence issues
 - **Instructions to start coding immediately** — the plan contains exact file paths, locations, and what to change. Do not re-explore the codebase; go straight to writing code based on the plan.
 - **Role: Senior architect-level developer.** Write clean, readable, type-safe, and secure code. Follow best practices and established conventions in the codebase. Every decision should prioritize correctness, safety, and maintainability.
 - Instructions to work directly on the current branch (no worktree)
@@ -120,49 +120,72 @@ If the diff is empty and round == 1, report to the user that no changes were mad
 
 #### Step C — Review
 
-Spawn four reviewer agents **in parallel** using `team_name="implement"`:
+Read all relevant CLAUDE.md files: the root CLAUDE.md (if one exists), plus any CLAUDE.md files in directories whose files were modified. Store as `$CLAUDE_MD_CONTENTS`.
 
-- `name: "logic"`, `model: "opus"` — Logic & Correctness reviewer
-- `name: "security"`, `model: "opus"` — Security reviewer
-- `name: "architecture"`, `model: "opus"` — Architecture & Tests reviewer
-- `name: "conventions"`, `model: "opus"` — Performance & Conventions reviewer
+Spawn four reviewer agents **in parallel** as **standalone `Agent` calls** (not team-based, no `SendMessage`):
 
-Pass each reviewer:
+| Name          | Model    | Focus                    |
+| ------------- | -------- | ------------------------ |
+| `security`    | `opus`   | Security                 |
+| `logic`       | `opus`   | Logic & Correctness      |
+| `ux`          | `sonnet` | UX & Accessibility       |
+| `conventions` | `sonnet` | Conventions & Quality    |
+
+Pass each reviewer **all context inline** so they do not need to fetch anything:
 
 - The full `git diff HEAD` output
 - The full content of all modified files (read them locally)
+- `$CLAUDE_MD_CONTENTS` (the full contents of all relevant CLAUDE.md files, labeled by path)
+- The implementation plan from Phase 1
 - Their specific review instructions (see Reviewer Prompts below)
-- Instructions to send their findings back to you (the moderator) via `SendMessage`
-- Instructions to then **wait** — the moderator may ask them to debate findings with other reviewers
+- Instructions to report every finding as an **issue** with a description and justification — do NOT classify severity (scoring happens later)
+- Instructions to return findings directly (the agent's return value is its report)
+- **"All context you need is provided above. Do NOT run git commands. You MAY read additional files if you need to trace an import, check a function signature, or understand a dependency — but do not re-read files already provided."**
 
-Wait for all four reviewers to report back.
+Each reviewer returns its findings directly and terminates. Collect all findings.
 
-#### Step D — Debate (Contested Findings)
+#### Step D — Confidence Scoring
 
-After receiving all findings:
+For **each issue** from Step C, launch a parallel **Haiku** agent to score confidence. Each scoring agent receives everything inline — it should NOT run any commands or read any files:
 
-1. Identify cross-cutting findings — issues flagged by multiple reviewers or where findings contradict each other.
-2. For each contested finding, forward it to the relevant reviewers via `SendMessage` and ask them to respond to each other's reasoning.
-3. Collect responses. If unresolved, default to BLOCKING.
+- The git diff
+- The issue description and the reviewer's justification
+- `$CLAUDE_MD_CONTENTS` (so the agent can verify CLAUDE.md-based issues without reading files)
 
-Shut down all reviewers:
+The agent scores the issue on a 0–100 scale. Give each scoring agent this rubric **verbatim**:
 
-```
-SendMessage type="shutdown_request" to each reviewer
-```
+> Score each issue on a scale from 0–100 indicating your confidence that the issue is real and worth fixing:
+>
+> - **0:** Not confident at all. This is a false positive that doesn't stand up to light scrutiny, or is a pre-existing issue.
+> - **25:** Somewhat confident. This might be a real issue, but may also be a false positive. You weren't able to verify it. If the issue is stylistic, it was not explicitly called out in the relevant CLAUDE.md.
+> - **50:** Moderately confident. You verified this is a real issue, but it might be a nitpick or not happen very often in practice. Relative to the rest of the changes, it's not very important.
+> - **75:** Highly confident. You double-checked the issue and verified it is very likely real and will be hit in practice. The existing approach is insufficient. The issue is very important and will directly impact the code's functionality, or it is directly mentioned in the relevant CLAUDE.md.
+> - **100:** Absolutely certain. You double-checked the issue and confirmed it is definitely real and will happen frequently in practice. The evidence directly confirms this.
+>
+> For issues flagged due to CLAUDE.md instructions, double-check that the CLAUDE.md actually calls out that issue specifically. If it doesn't, score no higher than 25.
 
-Wait for shutdown confirmations.
+**Examples of false positives (provide to scoring agents):**
 
-#### Step E — Verdict
+- Pre-existing issues not introduced by the new changes
+- Something that looks like a bug but is not actually a bug
+- Pedantic nitpicks that a senior engineer wouldn't call out
+- Issues that a linter, typechecker, or compiler would catch (missing imports, type errors, formatting). Assume CI runs these separately.
+- General code quality issues (lack of test coverage, general security issues, poor documentation), unless explicitly required in CLAUDE.md
+- Issues called out in CLAUDE.md but explicitly silenced in the code (e.g. lint-ignore comment)
+- Changes in functionality that are likely intentional or directly related to the broader change
 
-Synthesize findings. Apply verdict rules:
+**Scoring is independent.** The Haiku scoring agents must NOT see each other's scores — each scores independently to avoid anchoring bias.
 
-- `APPROVE` — no BLOCKING issues
-- `BLOCKED` — one or more BLOCKING issues
+#### Step E — Filter & Verdict
+
+Discard all issues scoring **below 80**. Apply verdict rules:
+
+- `APPROVE` — no issues scored ≥ 80
+- `BLOCKED` — one or more issues scored ≥ 80
 
 **If APPROVE or round == 3:** exit the loop. Go to Phase 3.
 
-**If BLOCKED and round < 3:** set `reviewer_feedback` = full list of BLOCKING issues with file:line references. Increment `round`. Go back to Step A (spawn a new implementer).
+**If BLOCKED and round < 3:** set `reviewer_feedback` = full list of issues scoring ≥ 80 with file:line references and confidence scores. Increment `round`. Go back to Step A (spawn a new implementer).
 
 ---
 
@@ -178,135 +201,161 @@ Call `TeamDelete` to clean up the team.
 
 Report to the user:
 
-```
+```markdown
 ## Result
 
 **Rounds:** <N>
 **Final Verdict:** APPROVE | BLOCKED (max rounds reached)
 
-### Blocking Issues Remaining (if any)
-- file:line — description
+---
 
-### Non-Blocking Issues (suggestions)
-- file:line — description
+### Issues Found: <count> (from <total pre-filter count> candidates)
 
-### Engineering Quality
-OVER-ENGINEERED | PERFECT | UNDER-ENGINEERED
+---
+
+### Security (Opus)
+
+- [<score>] `file:line` — description + justification
+
+---
+
+### Logic & Correctness (Opus)
+
+- [<score>] `file:line` — description + justification
+
+---
+
+### UX & Accessibility (Sonnet)
+
+- [<score>] `file:line` — description + justification
+
+---
+
+### Conventions & Quality (Sonnet)
+
+- [<score>] `file:line` — description + justification
+
+### Filtered Out (<count> issues below threshold)
+- [<score>] <reviewer>: <brief description> — reason for low confidence
+```
+
+If verdict is APPROVE and no issues found, report:
+
+```markdown
+## Result
+
+**Rounds:** <N>
+**Final Verdict:** APPROVE
+
+No issues found. Reviewed <count> candidates across Security, Logic, UX, and Conventions — all scored below the confidence threshold.
 ```
 
 If verdict is APPROVE, suggest the user run `/commit` to commit the changes.
 
-If max rounds reached with BLOCKED verdict, list all remaining blocking issues so the user can fix them manually.
+If max rounds reached with BLOCKED verdict, list all remaining high-confidence issues so the user can fix them manually.
 
 ---
 
 ## Reviewer Prompts
 
-### Logic Reviewer (`logic`)
-
-You are a logic and correctness reviewer on a code review team.
-
-You will receive a git diff and the full content of modified files.
-
-Trace every changed function. Find: wrong conditions, missing null checks, off-by-one errors, race conditions, broken async/await, stale closures, unhandled edge cases.
-
-Classify each finding as **BLOCKING** (must fix) or **NON-BLOCKING** (suggestion).
-
-Format your findings as:
-
-```
-### Logic & Correctness
-- [BLOCKING|NON-BLOCKING] file:line — description + justification
-```
-
-Send your findings to the moderator via SendMessage. Then **wait** — the moderator may ask you to debate findings with other reviewers.
-
----
-
 ### Security Reviewer (`security`)
 
-You are a security reviewer on a code review team.
+**Model:** `opus`
 
-You will receive a git diff and the full content of modified files.
+You are a security reviewer. All context is provided inline: the git diff, the full content of modified files, the contents of relevant CLAUDE.md files, and the implementation plan. Do NOT run git commands. You MAY read additional files only to trace imports or check dependencies.
 
-Find: XSS, SQL injection, command injection, SSRF, hardcoded secrets, auth/authz gaps, missing input validation at system boundaries, insecure data exposure.
+Note any security-related rules from the provided CLAUDE.md contents.
 
-Classify each finding as **BLOCKING** or **NON-BLOCKING**.
+Find: XSS, SQL injection, command injection, SSRF, path traversal, hardcoded secrets/credentials, authentication and authorization gaps, missing input validation at system boundaries, insecure data exposure, unsafe deserialization, CSRF vulnerabilities, open redirects.
 
-Format your findings as:
+For each finding, explain the attack vector and impact. Do NOT classify severity — just report the issue with justification.
+
+Format:
 
 ```
 ### Security
-- [BLOCKING|NON-BLOCKING] file:line — description + justification
+
+- file:line — description + attack vector + impact
+- file:line — description + attack vector + impact
 ```
 
-Send your findings to the moderator via SendMessage. Then **wait** — the moderator may ask you to debate findings with other reviewers.
+Return your findings as your final output.
 
 ---
 
-### Architecture Reviewer (`architecture`)
+### Logic & Correctness Reviewer (`logic`)
 
-You are an architecture and tests reviewer on a code review team.
+**Model:** `opus`
 
-You will receive a git diff and the full content of modified files.
+You are a logic and correctness reviewer. All context is provided inline: the git diff, the full content of modified files, the contents of relevant CLAUDE.md files, and the implementation plan. Do NOT run git commands. You MAY read additional files only to trace imports or check dependencies.
 
-**Architecture:** Evaluate solution size vs problem (OVER-ENGINEERED / PERFECT / UNDER-ENGINEERED). Flag premature abstractions, duplication, poor separation of concerns. Search the codebase for existing patterns that solve the same problem — flag re-implementations or divergence without justification.
+Note any correctness-related rules from the provided CLAUDE.md contents.
 
-**Tests:** Identify untested new logic, missing error-path and permission tests, tests that only check existence instead of behavior. Verify Cypress tests use `.should('be.visible')` not `.should('exist')`.
+Trace every changed function path. Find: wrong boolean conditions, missing null/undefined checks, off-by-one errors, race conditions, broken async/await chains, unhandled promise rejections, stale closures, infinite loops or recursion, incorrect state transitions, unhandled edge cases, type mismatches that slip past the compiler.
 
-Classify each finding as **BLOCKING** or **NON-BLOCKING**.
+For each finding, explain why it's a bug and the expected impact. Do NOT classify severity — just report the issue with justification.
 
-Format your findings as:
+Format:
 
 ```
-### Architecture & Tests
-- [BLOCKING|NON-BLOCKING] file:line — description + justification
-Engineering Quality: OVER-ENGINEERED / PERFECT / UNDER-ENGINEERED
+### Logic & Correctness
+
+- file:line — description + justification
+- file:line — description + justification
 ```
 
-Send your findings to the moderator via SendMessage. Then **wait** — the moderator may ask you to debate findings with other reviewers.
+Return your findings as your final output.
 
 ---
 
-### Conventions Reviewer (`conventions`)
+### UX & Accessibility Reviewer (`ux`)
 
-You are a performance and conventions reviewer on a code review team.
+**Model:** `sonnet`
 
-You will receive a git diff and the full content of modified files.
+You are a UX and accessibility reviewer. All context is provided inline: the git diff, the full content of modified files, the contents of relevant CLAUDE.md files, and the implementation plan. Do NOT run git commands. You MAY read additional files only to trace imports or check dependencies.
 
-**Performance:** Queries/API calls inside loops, missing `useMemo`/`useCallback` where clearly needed, blocking synchronous operations, pagination regressions.
+Note any UX/accessibility-related rules from the provided CLAUDE.md contents.
 
-**Conventions** — check changed files against these rules:
+Evaluate: user-facing flows (are they intuitive?), feedback states (loading, error, success, empty states — are they all handled?), accessibility (keyboard navigation, screen reader support, focus management, ARIA attributes, color contrast), i18n readiness (are all user-facing strings translatable?), responsive behavior, form UX (validation feedback, disabled states, required field indicators).
 
-- Frontend (`apps/umf`): no `as` type assertions, no `Optional[...]`, no Chakra Stack/VStack/HStack, no `.otherwise()` in ts-pattern, correct i18n usage, icons via `@ul/icons` with `<Icon as={...}>`, `Box`/`List`/`Flex`/`FlexItem` from `@moblin/chakra-ui`
-- Backend (`apps/web`): use `str | None` not `Optional[str]`, use `get_val()` in serializer `validate()`, no N+1 queries
+For each finding, explain the user impact. Do NOT classify severity — just report the issue with justification.
 
-Classify each finding as **BLOCKING** or **NON-BLOCKING**.
-
-Format your findings as:
+Format:
 
 ```
-### Performance & Conventions
-- [BLOCKING|NON-BLOCKING] file:line — description + justification
+### UX & Accessibility
+
+- file:line — description + user impact
+- file:line — description + user impact
 ```
 
-Send your findings to the moderator via SendMessage. Then **wait** — the moderator may ask you to debate findings with other reviewers.
+Return your findings as your final output.
 
 ---
 
-## What Counts as Blocking
+### Conventions & Quality Reviewer (`conventions`)
 
-**Blocking:**
+**Model:** `sonnet`
 
-- Definite or likely bug (wrong logic, missing null check, race condition)
-- Security vulnerability (injection, auth bypass, data exposure)
-- Data loss or corruption
-- Regression that breaks existing functionality
-- N+1 query or severe performance degradation
+You are a conventions and code quality reviewer. All context is provided inline: the git diff, the full content of modified files, the contents of relevant CLAUDE.md files, and the implementation plan. Do NOT run git commands. You MAY read additional files only to trace imports or check dependencies.
 
-**Non-Blocking:**
+The provided CLAUDE.md contents are your primary source of truth for project conventions. Also check `.claude/` rules if referenced.
 
-- Stylistic preference or nitpick
-- Minor improvement suggestion
-- Convention violation with no functional impact
-- Missing optimization that doesn't cause real problems
+Common things to look for:
+
+- **Frontend:** no `as` type assertions, no `Optional[...]`, correct import order, `Box`/`List`/`Flex`/`FlexItem` from `@moblin/chakra-ui` (not Chakra Stack/VStack/HStack), correct i18n usage (`intl.$t()` / `FormattedMessage`), icons via `@ul/icons` with `<Icon as={...}>`, no `.otherwise()` in ts-pattern matches, proper form patterns with React Hook Form
+- **Backend:** `str | None` not `Optional[str]`, `get_val()` in serializer `validate()`, no N+1 queries (check for `select_related`/`prefetch_related`), proper error arrays in ValidationError
+- **General:** naming conventions (PascalCase components, camelCase hooks, kebab-case files), dead code, unnecessary complexity, missing error handling at system boundaries, performance issues (queries in loops, missing memoization where clearly needed)
+
+For each finding, cite the convention source (CLAUDE.md rule, code comment, etc.). Do NOT classify severity — just report the issue with justification.
+
+Format:
+
+```
+### Conventions & Quality
+
+- file:line — description + convention reference
+- file:line — description + convention reference
+```
+
+Return your findings as your final output.
