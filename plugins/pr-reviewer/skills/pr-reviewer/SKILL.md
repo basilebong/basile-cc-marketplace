@@ -1,11 +1,11 @@
 ---
 name: pr-reviewer
-description: Spawn a team of specialized agents (Security, Logic, UX, Conventions) to review a PR from GitHub or GitLab, score each issue on a 0-100 confidence scale, and filter to high-confidence findings.
+description: Spawn specialized sub-agents (Security, Logic, UX, Conventions) to review a PR from GitHub or GitLab, score each issue on a 0-100 confidence scale, and filter to high-confidence findings.
 ---
 
 # PR Reviewer — Multi-Agent Code Review
 
-Detect the hosting platform (GitHub or GitLab), fetch PR changes, read any local uncommitted diff, then spawn a team of four specialized reviewers. Independently score each issue on a 0–100 confidence scale using Haiku agents, filter to high-confidence findings (≥ 80), and present the results.
+Detect the hosting platform (GitHub or GitLab), fetch PR changes, read any local uncommitted diff, then spawn four specialized reviewer sub-agents in parallel. Each reviewer scores its own findings on a 0–100 confidence scale, the orchestrator filters to high-confidence findings (≥ 80), and presents the results.
 
 ---
 
@@ -100,9 +100,9 @@ From `$PR_DIFF`, extract the list of modified files. Read the full current conte
 
 ---
 
-## Phase 2: Spawn Reviewer Team
+## Phase 2: Spawn Reviewer Sub-Agents
 
-Spawn all four reviewers **in parallel** using the `Agent` tool:
+Spawn all four reviewers **in parallel** using four separate `Agent` tool calls in the **same message**:
 
 | Name          | Model    | Focus                    |
 | ------------- | -------- | ------------------------ |
@@ -119,55 +119,22 @@ Embed **all context inline** in each agent's prompt so they do not need to fetch
 - `$PR_SUMMARY` (the summary from Phase 1)
 - `$CLAUDE_MD_CONTENTS` (the full contents of all relevant CLAUDE.md files, labeled by path)
 - The full content of all modified files (labeled by path)
-- Their specific review prompt (see Reviewer Prompts below)
-- Instructions to report every finding as an **issue** with a description and justification — do NOT classify severity (scoring happens later)
-- Instructions to return findings directly (the agent's return value is its report)
+- Their specific review prompt (see Reviewer Prompts below), which includes the confidence scoring rubric — each reviewer scores its own findings inline
 - **"All context you need is provided above. Do NOT run git commands, gh/glab commands, or re-fetch the diff. You MAY read additional files if you need to trace an import, check a function signature, or understand a dependency — but do not re-read files already provided."**
 
-Do **not** use a team or `SendMessage`. Spawn each reviewer as a standalone `Agent` call (not `run_in_background`) so it returns its findings directly and terminates immediately when done.
+Do **not** use `TeamCreate` or `SendMessage`. Spawn each reviewer as a standalone `Agent` call (not `run_in_background`) so it returns its findings directly and terminates immediately when done. This avoids the token overhead of keeping a persistent team alive.
+
+Each reviewer both finds issues AND scores them, so there is no separate scoring phase. This cuts token usage significantly by avoiding re-sending the full diff to additional scoring agents.
 
 ---
 
-## Phase 3: Confidence Scoring
-
-For **each issue** from Phase 2, launch a parallel **Haiku** agent to score confidence. Each scoring agent receives everything inline — it should NOT run any commands or read any files:
-
-- The PR diff
-- The issue description and the reviewer's justification
-- `$CLAUDE_MD_CONTENTS` (the full contents of all relevant CLAUDE.md files, so the agent can verify CLAUDE.md-based issues without reading files)
-
-The agent scores the issue on a 0–100 scale. Give each scoring agent this rubric **verbatim**:
-
-> Score each issue on a scale from 0–100 indicating your confidence that the issue is real and worth fixing:
->
-> - **0:** Not confident at all. This is a false positive that doesn't stand up to light scrutiny, or is a pre-existing issue.
-> - **25:** Somewhat confident. This might be a real issue, but may also be a false positive. You weren't able to verify it. If the issue is stylistic, it was not explicitly called out in the relevant CLAUDE.md.
-> - **50:** Moderately confident. You verified this is a real issue, but it might be a nitpick or not happen very often in practice. Relative to the rest of the PR, it's not very important.
-> - **75:** Highly confident. You double-checked the issue and verified it is very likely real and will be hit in practice. The existing approach in the PR is insufficient. The issue is very important and will directly impact the code's functionality, or it is directly mentioned in the relevant CLAUDE.md.
-> - **100:** Absolutely certain. You double-checked the issue and confirmed it is definitely real and will happen frequently in practice. The evidence directly confirms this.
->
-> For issues flagged due to CLAUDE.md instructions, double-check that the CLAUDE.md actually calls out that issue specifically. If it doesn't, score no higher than 25.
-
-### Examples of false positives (provide to scoring agents)
-
-- Pre-existing issues not introduced by the PR
-- Something that looks like a bug but is not actually a bug
-- Pedantic nitpicks that a senior engineer wouldn't call out
-- Issues that a linter, typechecker, or compiler would catch (missing imports, type errors, formatting). Assume CI runs these separately.
-- General code quality issues (lack of test coverage, general security issues, poor documentation), unless explicitly required in CLAUDE.md
-- Issues called out in CLAUDE.md but explicitly silenced in the code (e.g. lint-ignore comment)
-- Changes in functionality that are likely intentional or directly related to the broader change
-- Real issues, but on lines the author did not modify in the PR
-
----
-
-## Phase 4: Filter
+## Phase 3: Filter
 
 Discard all issues scoring **below 80**. If no issues survive, skip to the report and output "No issues found."
 
 ---
 
-## Phase 5: Consolidated Report
+## Phase 4: Consolidated Report
 
 Present **every surviving issue** (score ≥ 80). Group by reviewer, sorted by confidence score descending.
 
@@ -251,15 +218,15 @@ Note any security-related rules from the provided CLAUDE.md contents.
 
 Find: XSS, SQL injection, command injection, SSRF, path traversal, hardcoded secrets/credentials, authentication and authorization gaps, missing input validation at system boundaries, insecure data exposure, unsafe deserialization, CSRF vulnerabilities, open redirects.
 
-For each finding, explain the attack vector and impact. Do NOT classify severity — just report the issue with justification.
+For each finding, explain the attack vector and impact. Then **score each finding** using the confidence rubric below.
 
 Format:
 
 ```
 ### Security
 
-- file:line — description + attack vector + impact
-- file:line — description + attack vector + impact
+- [score] file:line — description + attack vector + impact
+- [score] file:line — description + attack vector + impact
 ```
 
 Return your findings as your final output.
@@ -276,15 +243,15 @@ Note any correctness-related rules from the provided CLAUDE.md contents.
 
 Trace every changed function path. Find: wrong boolean conditions, missing null/undefined checks, off-by-one errors, race conditions, broken async/await chains, unhandled promise rejections, stale closures, infinite loops or recursion, incorrect state transitions, unhandled edge cases, type mismatches that slip past the compiler.
 
-For each finding, explain why it's a bug and the expected impact. Do NOT classify severity — just report the issue with justification.
+For each finding, explain why it's a bug and the expected impact. Then **score each finding** using the confidence rubric below.
 
 Format:
 
 ```
 ### Logic & Correctness
 
-- file:line — description + justification
-- file:line — description + justification
+- [score] file:line — description + justification
+- [score] file:line — description + justification
 ```
 
 Return your findings as your final output.
@@ -301,15 +268,15 @@ Note any UX/accessibility-related rules from the provided CLAUDE.md contents.
 
 Evaluate: user-facing flows (are they intuitive?), feedback states (loading, error, success, empty states — are they all handled?), accessibility (keyboard navigation, screen reader support, focus management, ARIA attributes, color contrast), i18n readiness (are all user-facing strings translatable?), responsive behavior, form UX (validation feedback, disabled states, required field indicators).
 
-For each finding, explain the user impact. Do NOT classify severity — just report the issue with justification.
+For each finding, explain the user impact. Then **score each finding** using the confidence rubric below.
 
 Format:
 
 ```
 ### UX & Accessibility
 
-- file:line — description + user impact
-- file:line — description + user impact
+- [score] file:line — description + user impact
+- [score] file:line — description + user impact
 ```
 
 Return your findings as your final output.
@@ -330,18 +297,45 @@ Common things to look for:
 - **Backend:** `str | None` not `Optional[str]`, `get_val()` in serializer `validate()`, no N+1 queries (check for `select_related`/`prefetch_related`), proper error arrays in ValidationError
 - **General:** naming conventions (PascalCase components, camelCase hooks, kebab-case files), dead code, unnecessary complexity, missing error handling at system boundaries, performance issues (queries in loops, missing memoization where clearly needed)
 
-For each finding, cite the convention source (CLAUDE.md rule, code comment, etc.). Do NOT classify severity — just report the issue with justification.
+For each finding, cite the convention source (CLAUDE.md rule, code comment, etc.). Then **score each finding** using the confidence rubric below.
 
 Format:
 
 ```
 ### Conventions & Quality
 
-- file:line — description + convention reference
-- file:line — description + convention reference
+- [score] file:line — description + convention reference
+- [score] file:line — description + convention reference
 ```
 
 Return your findings as your final output.
+
+---
+
+## Confidence Scoring Rubric
+
+Include this rubric **verbatim** in every reviewer sub-agent's prompt, so each reviewer scores its own findings inline:
+
+> Score each issue on a scale from 0–100 indicating your confidence that the issue is real and worth fixing:
+>
+> - **0:** Not confident at all. This is a false positive that doesn't stand up to light scrutiny, or is a pre-existing issue.
+> - **25:** Somewhat confident. This might be a real issue, but may also be a false positive. You weren't able to verify it. If the issue is stylistic, it was not explicitly called out in the relevant CLAUDE.md.
+> - **50:** Moderately confident. You verified this is a real issue, but it might be a nitpick or not happen very often in practice. Relative to the rest of the PR, it's not very important.
+> - **75:** Highly confident. You double-checked the issue and verified it is very likely real and will be hit in practice. The existing approach in the PR is insufficient. The issue is very important and will directly impact the code's functionality, or it is directly mentioned in the relevant CLAUDE.md.
+> - **100:** Absolutely certain. You double-checked the issue and confirmed it is definitely real and will happen frequently in practice. The evidence directly confirms this.
+>
+> For issues flagged due to CLAUDE.md instructions, double-check that the CLAUDE.md actually calls out that issue specifically. If it doesn't, score no higher than 25.
+>
+> ### Examples of false positives (score 0–25)
+>
+> - Pre-existing issues not introduced by the PR
+> - Something that looks like a bug but is not actually a bug
+> - Pedantic nitpicks that a senior engineer wouldn't call out
+> - Issues that a linter, typechecker, or compiler would catch (missing imports, type errors, formatting). Assume CI runs these separately.
+> - General code quality issues (lack of test coverage, general security issues, poor documentation), unless explicitly required in CLAUDE.md
+> - Issues called out in CLAUDE.md but explicitly silenced in the code (e.g. lint-ignore comment)
+> - Changes in functionality that are likely intentional or directly related to the broader change
+> - Real issues, but on lines the author did not modify in the PR
 
 ---
 
@@ -351,5 +345,5 @@ Return your findings as your final output.
 - **Uncommitted changes are clearly labeled.** If `$LOCAL_DIFF` is non-empty, prefix those findings with `[UNCOMMITTED]` so the user knows they are not yet part of the PR.
 - **No auto-fixing.** This skill only reviews — it does not modify code.
 - **Fail gracefully.** If `gh`/`glab` is not installed or not authenticated, tell the user what to run and stop. Do not proceed without the PR diff.
-- **Scoring is independent.** The Haiku scoring agents must NOT see each other's scores — each scores independently to avoid anchoring bias.
+- **Scoring is self-contained.** Each reviewer scores its own findings — there are no separate scoring agents. This saves tokens by avoiding re-sending the full diff to additional agents.
 - **Show filtered issues.** The report includes a "Filtered Out" section so the user can see what was considered but didn't meet the threshold.

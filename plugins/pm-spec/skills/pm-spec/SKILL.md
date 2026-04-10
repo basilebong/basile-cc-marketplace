@@ -5,7 +5,7 @@ description: Acts as a Product Manager to gather requirements, explore the codeb
 
 # PM Specification Writer
 
-Put Claude in the role of a Product Manager: explore the codebase, gather requirements, draft a spec, then run a parallel reviewer panel before saving.
+Put Claude in the role of a Product Manager: explore the codebase, gather requirements, draft a spec, then run parallel reviewer sub-agents before saving.
 
 ## Core Principles
 
@@ -131,17 +131,13 @@ Each reviewer returns:
 
 **Per round:**
 
-1. Use `TeamCreate` to create a team named `spec-reviewers` (if not already created).
-2. Spawn all pending reviewers in parallel using the `Agent` tool with `team_name: "spec-reviewers"` and a unique `name` per reviewer (e.g. `ux-reviewer`, `security-reviewer`, `arch-reviewer`, `business-reviewer`). Skip any that already approved in a prior round. Each reviewer should be told the names of the other active reviewers so they can message them directly via `SendMessage`.
-3. Wait for all spawned reviewers to send their verdicts back via `SendMessage`.
-4. **Conflict detection:** After collecting all verdicts, identify conflicting findings — cases where one reviewer approves something another blocks, or where two reviewers reach opposite conclusions about the same issue (e.g. Security says "add pagination" but Architecture says "existing pattern doesn't use it here"). For each conflict:
-   - Forward the conflicting positions to both reviewers via `SendMessage` and ask them to debate directly with each other using `SendMessage`.
-   - Wait for them to reach a resolution and report back. If unresolved after one exchange, use `AskUserQuestion` to make the call.
-5. Triage remaining (non-conflicting) blocking issues:
+1. Spawn all pending reviewers **in parallel** using separate `Agent` tool calls in the **same message**. Skip any that already approved in a prior round. Embed the full spec draft inline in each agent's prompt so they do not need to fetch anything. Do **not** use `TeamCreate` or `SendMessage` — each reviewer is a standalone `Agent` call that returns its verdict directly and terminates immediately.
+2. Collect all verdicts from the agent return values.
+3. **Conflict detection:** After collecting all verdicts, identify conflicting findings — cases where one reviewer approves something another blocks, or where two reviewers reach opposite conclusions about the same issue (e.g. Security says "add pagination" but Architecture says "existing pattern doesn't use it here"). For each conflict, resolve it yourself if the answer is clear from the codebase context; otherwise use `AskUserQuestion` to let the user make the call.
+4. Triage remaining (non-conflicting) blocking issues:
    - Fix directly if unambiguous
    - Use `AskUserQuestion` if it requires a tradeoff — wait for answers and revise before the next round
-6. Re-spawn only the reviewers that blocked (reuse the same `team_name`). Repeat until all 4 approve.
-7. Shut down all teammates via `SendMessage` with `type: "shutdown_request"`, then call `TeamDelete`.
+5. Re-spawn only the reviewers that blocked. Repeat until all 4 approve.
 
 Present a brief summary of changes made before saving.
 
