@@ -1,0 +1,51 @@
+{
+  "skill_name": "pm-spec",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to add a skill rating system to the marketplace — users should be able to rate skills 1-5 stars after using them, and we show the average on the skill listing.",
+      "expected_output": "A concise spec with user stories, edge cases as bullets, relevant files, no open questions",
+      "files": [],
+      "assertions": [
+        {"id": "no-gherkin", "text": "Spec contains no Gherkin syntax (no Given/When/Then keywords)"},
+        {"id": "has-user-stories", "text": "Spec contains user stories in 'As a [persona], I want [action] so that [outcome]' format"},
+        {"id": "no-open-questions", "text": "Spec has no 'Open Questions' section and no unresolved TBD/TODO markers"},
+        {"id": "brief-edge-cases", "text": "Edge cases are listed as brief one-line bullets, not full scenarios"},
+        {"id": "scannable-length", "text": "Total spec is under 150 lines"},
+        {"id": "has-relevant-files", "text": "Spec lists actual file paths from the codebase"},
+        {"id": "has-acceptance-criteria", "text": "Spec contains acceptance criteria as a checklist"}
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "We need better notifications. Users are missing important stuff.",
+      "expected_output": "A spec that resolves all ambiguity through discovery questions, produces lean user stories, no open questions left",
+      "files": [],
+      "assertions": [
+        {"id": "no-gherkin", "text": "Spec contains no Gherkin syntax (no Given/When/Then keywords)"},
+        {"id": "has-user-stories", "text": "Spec contains user stories in 'As a [persona], I want [action] so that [outcome]' format"},
+        {"id": "no-open-questions", "text": "Spec has no 'Open Questions' section and no unresolved TBD/TODO markers"},
+        {"id": "brief-edge-cases", "text": "Edge cases are listed as brief one-line bullets, not full scenarios"},
+        {"id": "scannable-length", "text": "Total spec is under 150 lines"},
+        {"id": "has-relevant-files", "text": "Spec lists actual file paths from the codebase"},
+        {"id": "has-acceptance-criteria", "text": "Spec contains acceptance criteria as a checklist"},
+        {"id": "resolved-ambiguity", "text": "Despite the vague prompt, the spec makes concrete product decisions rather than leaving things generic or unresolved"}
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Add a bulk import feature — users should be able to upload a CSV of skills to install at once, instead of installing them one by one.",
+      "expected_output": "A spec with user stories and brief edge case bullets covering validation, partial failures, duplicates",
+      "files": [],
+      "assertions": [
+        {"id": "no-gherkin", "text": "Spec contains no Gherkin syntax (no Given/When/Then keywords)"},
+        {"id": "has-user-stories", "text": "Spec contains user stories in 'As a [persona], I want [action] so that [outcome]' format"},
+        {"id": "no-open-questions", "text": "Spec has no 'Open Questions' section and no unresolved TBD/TODO markers"},
+        {"id": "brief-edge-cases", "text": "Edge cases are listed as brief one-line bullets, not full scenarios"},
+        {"id": "scannable-length", "text": "Total spec is under 150 lines"},
+        {"id": "has-relevant-files", "text": "Spec lists actual file paths from the codebase"},
+        {"id": "has-acceptance-criteria", "text": "Spec contains acceptance criteria as a checklist"}
+      ]
+    }
+  ]
+}
