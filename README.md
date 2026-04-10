@@ -14,7 +14,7 @@ Spawns specialized sub-agents (Security, Logic, UX, Conventions) to review a PR 
 
 **Usage:** `/pr-reviewer` with a PR URL or number.
 
-### pr-comment-analyzer
+### pr-comment-analyzer (beta)
 Analyzes PR review comments with two agents debating devil's-advocate style, then produces casual copy-pasteable replies rated FIX or SKIP.
 
 **Usage:** `/pr-comment-analyzer` with a PR URL or number.
