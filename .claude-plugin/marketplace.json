@@ -8,22 +8,16 @@
   },
   "plugins": [
     {
-      "name": "implement",
-      "source": "./plugins/implement",
-      "description": "Plan, implement, and review a feature or refactor using an agent team. Loops until reviewer approves or 3 rounds exhausted.",
-      "version": "1.2.0"
-    },
-    {
       "name": "pm-spec",
       "source": "./plugins/pm-spec",
-      "description": "Acts as a Product Manager to gather requirements and create feature specifications.",
-      "version": "1.0.0"
+      "description": "Acts as a Product Manager to gather requirements, explore the codebase, and create feature specifications with lean user stories and file references.",
+      "version": "2.0.0"
     },
     {
       "name": "pr-reviewer",
       "source": "./plugins/pr-reviewer",
       "description": "Spawn a team of specialized agents to review a PR from GitHub or GitLab, score issues on a 0-100 confidence scale, and filter to high-confidence findings.",
-      "version": "2.0.0"
+      "version": "2.1.0"
     },
     {
       "name": "pr-comment-analyzer",
