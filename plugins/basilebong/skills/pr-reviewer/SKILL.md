@@ -66,12 +66,26 @@ Reviewer prompt:
 >
 > Only flag what a senior engineer would actually raise. Skip nitpicks a linter catches. Skip pre-existing issues. Skip anything on lines the author didn't touch.
 >
-> Rate each finding:
+> Rate each finding against these definitions and nothing else:
 > - **High** — bug, security hole, data loss, or breaking change. Must fix before merge.
 > - **Medium** — a real problem that should be fixed, but not a merge blocker.
 > - **Minor** — a nit or suggestion.
 >
-> Grade honestly against these definitions. NEVER inflate severity to look thorough or to avoid an empty report — a PR with only Minor findings, or none, is a normal and good outcome; say so plainly. When a finding sits between two tiers, pick the lower one. Before you call anything Medium, it must survive two checks: (1) the problem is real for the *actual* caller — not a trusted operator/admin doing something self-inflicted, and not a purely theoretical or defense-in-depth concern; and (2) your proposed fix actually addresses the problem you described (e.g. a parse-time check is no fix for memory already allocated upstream). If either fails, it's Minor or not a finding at all.
+> **The scale is absolute, never relative to the rest of the batch.** The worst thing in a PR is not automatically High, and a PR is not owed one finding of each tier. If the worst thing you found is a nit, then this PR has one Minor finding and no Highs. Grade each finding as if it were the only thing you found — never rank them against each other and hand the top slot a High. Every section is allowed to be empty. Never promote a finding to fill one, and never add a finding you'd otherwise have cut just to avoid a short report.
+>
+> **Demotion gate — run it on every finding before you report it.** Write the strongest argument that the finding belongs one tier lower. Then try to defeat that argument with a concrete failure scenario: a real caller, a real input, and the real damage it does. If you cannot produce that scenario, the demotion argument wins — drop the finding one tier. Demoted below Minor means it isn't a finding at all; cut it.
+>
+> Run the gate to find out the answer, not to justify a tier you already picked. Manufacturing a rebuttal you don't believe is the exact failure this gate exists to prevent. Demotion arguments that usually win:
+> - Only a trusted operator or admin can trigger it, and the damage is self-inflicted.
+> - It's theoretical, or defense-in-depth — nothing real reaches the code path.
+> - Your own proposed fix doesn't address the problem you described (a parse-time check is no fix for memory already allocated upstream).
+>
+> **The gate cuts both ways. It is not a licence to talk yourself out of a real bug.** When the failure scenario is there, you write it down and the finding stands. Anything an untrusted caller can exploit, anything that corrupts or loses data, and anything that silently returns a wrong result on a realistic input is High — the gate never lowers those. These demotion arguments never win:
+> - The bad input is "unlikely", the caller "shouldn't" do that, or some earlier layer "probably" validates it. If untrusted input can reach it, it happens.
+> - The fix is awkward, large, or feels out of scope. Severity describes the problem, not the cost of fixing it.
+> - You're unsure how often it fires. Frequency isn't severity — an auth bypass that fires once is still an auth bypass.
+>
+> For every High, keep the scenario that defeated the demotion — one concrete line. It goes in the report. **If you can't write that line, it isn't a High.**
 >
 > For each finding give: `file:line`, one sentence on the problem, and one concrete fix — what to actually change, not "consider refactoring". The fix is optional for Minor.
 >
@@ -84,7 +98,7 @@ Pick the verdict:
 - **🔴 Blocked** — at least one High finding.
 - **🟢 Approved** — no High findings. (Medium and Minor are advice, not blockers.)
 
-Render it short. Drop any empty severity section. Keep `file:line` on every finding. Order findings High → Medium → Minor.
+Render it short. Drop any empty severity section. Keep `file:line` on every finding. Order findings High → Medium → Minor. Every High carries its `Why it blocks:` line — that line is the reviewer showing the failure scenario that kept the finding out of Medium.
 
 ```markdown
 ## PR Review: <title>
@@ -95,6 +109,7 @@ Render it short. Drop any empty severity section. Keep `file:line` on every find
 
 ### 🔴 High
 - `file:line` — problem. **Fix:** concrete change.
+  **Why it blocks:** real caller, real input, real damage.
 
 ### 🟡 Medium
 - `file:line` — problem. **Fix:** concrete change.
@@ -119,6 +134,8 @@ If nothing was found:
 - **Keep it short.** Plain words, one line per finding. No diff dumps, no filler.
 - **Every finding has a `file:line`.** Every High and Medium has a concrete fix.
 - **Blocked needs a High finding.** Nothing else blocks the merge.
-- **Grade honestly, don't pad.** Never round severity up to fill a section or dodge a clean verdict. "No issues found" is a real, good result. Relay the reviewer's grades as-is; when torn between two tiers, the lower one wins.
+- **No scenario, no High.** Every High carries a `Why it blocks:` line — real caller, real input, real damage. A High that can't name one gets demoted before it reaches the report.
+- **Grade absolutely, never relative.** The worst finding in a PR is not automatically High. "No issues found" is a real, good result — report it instead of promoting something to fill the section. Relay the reviewer's grades as-is; on a genuine judgment call between two tiers, the lower one wins.
+- **Never round a real bug down.** Exploitable by an untrusted caller, data loss, or a silently wrong result on realistic input is High, full stop. An awkward fix or an uncertain trigger frequency doesn't demote it. Deflating a bug to look agreeable is the same failure as inflating a nit to look thorough.
 - **Review only.** Never edit code.
 - **Label uncommitted findings** with `[uncommitted]` so the author knows they aren't part of the PR yet.
