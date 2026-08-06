@@ -182,7 +182,7 @@ First check who owns the PR: `gh pr view --json author` against `gh api user -q 
 
 Skip the second question when the two options would produce the same threads, for example when there are no Minor findings or all of them are quick fixes. Skip it too if the user already said which they want.
 
-If they want it posted, use the **`pr-comment-inline` skill** for the mechanics. Do not hand-roll the GraphQL, that skill already knows the node IDs, which lines GitHub accepts, and what to do when a file is not in the diff. Its comment rules apply as written, plus:
+If they want it posted, use the **`basilebong:pr-comment-inline` skill** for the mechanics. Do not hand-roll the GraphQL, that skill already knows the node IDs, which lines GitHub accepts, and what to do when a file is not in the diff. Its comment rules apply as written, plus:
 
 - Lead each comment with its severity in bold: `**Medium.** ...` The tiers and the `Why it blocks` lines have to survive into the comment bodies, they are the whole point of the grading.
 - The review body is one or two sentences. It does not repeat the threads.

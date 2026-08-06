@@ -9,6 +9,11 @@ Acts as a Product Manager — explores the codebase, gathers requirements via in
 
 **Usage:** `/basilebong:pm-spec` or describe a feature you want to spec out.
 
+### pr-comment-inline
+Posts a PR review on GitHub with line-anchored inline comments through the GraphQL API, either left pending or submitted as an approval, a request for changes, or a plain comment. Handles the parts that usually go wrong: fetching the right node IDs, appending to a pending review that already exists instead of failing, picking lines GitHub will actually accept, and moving a finding to the review body when its file is not in the diff. Comments are written short and in plain words, with the severity leading when the findings are graded.
+
+**Usage:** `/basilebong:pr-comment-inline`, or ask to comment on a PR with inline notes. `pr-reviewer` calls it automatically when you tell it to post.
+
 ### pr-reviewer
 Reviews the current branch's GitHub or GitLab PR using a single Opus sub-agent. Groups findings into High, Medium, and Minor, and closes with a clear Blocked or Approved verdict. Output is short and scannable, readable in under a minute.
 
@@ -20,7 +25,7 @@ Reviews the current branch's GitHub or GitLab PR using a single Opus sub-agent. 
 
 **Written for a junior dev.** What breaks, who notices, what to change, in everyday words. No insider vocabulary.
 
-Finishes by asking whether to post the findings on the PR, pending or submitted, and whether to post everything or only what is worth fixing (a cheap Minor counts). The posting itself is handed to the `pr-comment-inline` skill.
+Finishes by asking whether to post the findings on the PR, pending or submitted, and whether to post everything or only what is worth fixing (a cheap Minor counts). The posting itself is handed to the `basilebong:pr-comment-inline` skill above.
 
 **Usage:** `/basilebong:pr-reviewer` (reviews the current branch's PR/MR).
 
