@@ -1,7 +1,7 @@
 {
   "name": "basilebong",
-  "description": "Basile's personal Claude Code skills: pr-reviewer (single-agent PR review that proves its claims against the real code, grades findings High/Medium/Minor, blocks on a High or a quietly-failing Medium, writes in plain language, and offers to post the findings to the PR) and pm-spec (PM-style feature specs with lean user stories).",
-  "version": "4.3.0",
+  "description": "Basile's personal Claude Code skills: pr-reviewer (single-agent PR review that proves its claims against the real code, grades findings High/Medium/Minor, blocks on a High or a Medium whose damage cannot be undone or would never be noticed, writes in plain language, and offers to post the findings to the PR) and pm-spec (PM-style feature specs with lean user stories).",
+  "version": "4.4.0",
   "author": {
     "name": "Basile Bong"
   }

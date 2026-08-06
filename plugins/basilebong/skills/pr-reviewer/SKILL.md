@@ -1,6 +1,6 @@
 ---
 name: pr-reviewer
-description: Review the current branch's GitHub or GitLab PR with a single Opus sub-agent. Proves every claim against the real code and environment instead of guessing, grades findings High/Medium/Minor, blocks on a High or a quietly-failing Medium, and writes in plain language a junior dev can read. Offers to post the findings to the PR as inline comments. Use whenever the user wants a PR or MR reviewed.
+description: Review the current branch's GitHub or GitLab PR with a single Opus sub-agent. Proves its claims against the real code and environment instead of guessing and labels what it could not verify, grades findings High/Medium/Minor, blocks on a High or on a Medium whose damage cannot be undone or would never be noticed, and writes in plain language a junior dev can read. Offers to post the findings to the PR as inline comments. Use whenever the user wants a PR or MR reviewed.
 ---
 
 # PR Reviewer
@@ -23,8 +23,11 @@ Then collect:
 - **Uncommitted changes** with `git diff HEAD`. If non-empty, include it, labeled as not yet part of the PR.
 - **CLAUDE.md**, the root file plus any in directories the PR touches, read in full. Rule files those point to count too.
 - **Modified files**, the full current content of each one, so the reviewer sees more than hunks.
+- **How to reach the running code**, if it lives in a container or a venv. The exact `docker exec` or interpreter path goes in the prompt, otherwise the reviewer cannot check anything for itself.
 
 If `gh` or `glab` is missing or not authenticated, tell the user what to run and stop.
+
+**Mind the context budget.** "Full files inline" stops being possible on a large PR, and silent truncation wrecks the review with no warning. If the changed files are too big to inline whole, send the full content of the files carrying real logic and fall back to hunks plus generous surrounding context for the rest. Say in the report which files went in trimmed, so nobody reads the review as more thorough than it was.
 
 ## Phase 2 — Prove the facts (do this before the handoff)
 
@@ -50,11 +53,17 @@ Spawn **one** `Agent`, model `opus`. Put everything inline: diff, metadata, unco
 
 Reviewer prompt:
 
-> You are a senior engineer reviewing this PR. All context is inline: the diff, the modified files, the relevant CLAUDE.md rules, any uncommitted changes, and a list of already-verified facts. Don't run git/gh/glab. Read extra files only to trace an import or a signature.
+> You are a senior engineer reviewing this PR. All context is inline: the diff, the modified files, the relevant CLAUDE.md rules, any uncommitted changes, and a list of already-verified facts. Don't re-fetch the PR (no git/gh/glab). You may read any file, including installed dependency source (a venv, `site-packages`, `node_modules`, a running container), and run read-only commands to check a claim.
 >
 > The verified facts were proven against the real code and the real environment. Treat them as ground truth and don't re-derive them.
 >
-> **No guessing.** Every claim you make must trace to the inlined code, one of the verified facts, or a check you ran yourself. If you cannot ground it, don't report it. If a finding's severity depends on something you could not verify, say which part is unverified inside the finding, and let that unknown hold the severity down a tier. Never assume the worse case to make a finding bigger.
+> **Verify what your findings rest on.** When a High or Medium depends on how a library, the runtime, or another component behaves, go and check it: read the installed source, confirm the argument or flag really exists, reproduce it when a read-only command can. Scope this to claims your High and Medium findings actually hang on, not to everything you noticed.
+>
+> Every High and Medium ends with one evidence line:
+> - `Proven:` what you checked and where.
+> - `Unverified:` what you could not check.
+>
+> **"Unverified" is a legal, expected outcome.** Report the finding anyway and label it. An unverified load-bearing claim drops the finding one tier and says so. Never delete a real concern because you could not prove it, and never state a guess as fact. Never assume the worse case to make a finding bigger. Minor findings need no evidence line.
 >
 > Look across the whole change: correctness bugs, security holes, missing edge cases, broken async, race conditions, convention violations (CLAUDE.md is the source of truth), UX gaps, and design smells. Was there a simpler or safer way?
 >
@@ -75,19 +84,24 @@ Reviewer prompt:
 >
 > For every High, keep the scenario that defeated the demotion, one concrete line. It goes in the report. If you can't write that line, it isn't a High.
 >
-> **Does a Medium block?** Default is no. A Medium blocks only when all three of these hold:
-> 1. **It will happen.** Normal use reaches it once this merges. Not a path someone could theoretically reach.
-> 2. **Nobody finds out fast.** It fails quietly: a swallowed error, a log line no one reads, a result that looks fine but isn't. Anything that fails loudly (a crash, a red test, obvious breakage) does not block, because it gets fixed the day it happens.
-> 3. **The fix is small and lives in this diff.** If fixing it is separate work, it does not block, it becomes a follow-up.
+> **Does a Medium block?** Severity and blocking are separate properties. Grading stays absolute, so there is nothing to gain by inflating a tier. Default is no: a Medium is advice.
 >
-> A blocking Medium carries the same `Why it blocks` line as a High. If you cannot write all three parts, it does not block. Severity still ignores fix cost, but *blocking* is a merge decision, and fix cost belongs in a merge decision. Blocking is the exception: if you block on most PRs you are reading this test too loosely.
+> Assume the PR merges now and the fix lands in a normal follow-up. A Medium blocks only through one of two doors:
+>
+> **Door 1, the damage cannot be undone.** Something in that window is permanent: a secret that then needs rotating, data written wrong, anything sent or published outside the system. If the follow-up fully undoes it, this door is shut. Slower code, noisy logs, and self-inflicted operator mistakes are reversible and never block.
+>
+> **Door 2, nobody will ever find out.** It happens in normal use and it fails silently: a swallowed error, a log line no one reads, a result that looks right and isn't. The follow-up never gets written because nothing tells anyone it is needed. A loud failure (a crash, a red test, obvious breakage) shuts this door, that gets fixed the day it happens.
+>
+> Either door needs the same standard as a High: real caller, real input, real damage, written as one line next to the finding. No line, no block. The finding stays Medium either way. Note that fix cost is not a door, severity and blocking both ignore it.
+>
+> Blocking is the exception. If you block on most PRs you are reading these doors too loosely. Watch your own "logs are forever" style permanence claims, the real-caller bar kills those.
 >
 > **Write every finding for a junior developer or a non-technical reader.** Rules:
 > - Order: what breaks, who notices, what to change.
 > - Everyday words. When you must name a file, function, or setting, add a few plain words on what it does.
 > - Two to four short sentences. One idea per sentence.
 > - No em dashes. Use commas, brackets, or a new sentence.
-> - No insider vocabulary. Banned unless you immediately explain it in plain words: coupling, leaky abstraction, surface area, graceful degradation, non-deterministic, idempotent, footgun, code smell, contract. Say the thing that actually happens instead.
+> - **Mechanism words are fine, evaluative jargon is not.** Race condition, SQL injection, deadlock, off-by-one each name a precise thing a junior can look up, keep them. Coupling, leaky abstraction, surface area, graceful degradation, footgun, code smell, "leaks into" are verdicts dressed up as nouns, drop them and say what actually happens. Precision lives in the `file:line` and the fix, which stay technical.
 >
 > Too complicated: "the process-wide env override leaks into an unrelated consumer, so KB retrieval silently degrades."
 > Right: "This puts the AWS key into the shared process settings, where anything else in the same job can read it. The search ranker does exactly that, so during a call it would use the wrong key. If that key is not allowed to rank, the error is swallowed and the caller just gets a worse answer."
@@ -100,11 +114,13 @@ Reviewer prompt:
 
 ## Phase 4 — Check the proof, then report
 
-Before writing anything, walk each returned finding and ask: **what proves this?** Point at the diff line, a verified fact, or a check that was run. If the answer is "it looks like" or "presumably", cut the finding or drop it a tier and label the unverified part. Do this even when the finding sounds right, especially then. Sub-agents produce confident prose about code that does not behave that way.
+Walk each returned finding and read its evidence line. A High or a blocking Medium with no `Proven:` line does not render at that tier, demote it or go and prove it yourself. Then re-check, with your own hands, the single claim the verdict hangs on. That one spot-check is cheap and it is the only defense against a confident `Proven:` line that was never actually run. Sub-agents write fluent prose about code that does not behave that way, and the more certain the sentence sounds the more it is worth checking.
+
+Keep the `Unverified:` findings. Report them at their demoted tier with the unverified part named. A concern you could not prove is still worth the author's attention, it just is not worth a blocking verdict.
 
 Then pick the verdict:
 
-- **🔴 Blocked**: at least one High, or at least one Medium that passes the three-part blocking test.
+- **🔴 Blocked**: at least one High, or at least one Medium that got through one of the two blocking doors.
 - **🟢 Approved**: nothing blocking. The remaining Medium and Minor findings are advice.
 
 Render it short. Drop any empty severity section. Keep `file:line` on every finding. Order High, Medium, Minor, and put a blocking Medium at the top of its section.
@@ -121,10 +137,12 @@ Render it short. Drop any empty severity section. Keep `file:line` on every find
 ### 🔴 High
 - `file:line`: problem, in plain words. **Fix:** concrete change.
   **Why it blocks:** real caller, real input, real damage.
+  *Proven:* what was checked and where.
 
 ### 🟡 Medium
 - `file:line`: problem, in plain words. **Fix:** concrete change.
-  **Why it blocks:** (blocking Mediums only) it will happen, it fails quietly, the fix is small and local.
+  **Why it blocks:** blocking Mediums only, which door and the real damage.
+  *Proven:* what was checked. Or *Unverified:* what could not be checked, and that this held the tier down.
 
 ### ⚪ Minor
 - `file:line`: problem, in plain words. **Fix:** concrete change. (quick fixes)
@@ -149,10 +167,12 @@ Only when there is at least one finding. On a clean review, say it is clean and 
 
 Ask with `AskUserQuestion`. Two questions in one call, so it is a single round trip.
 
+First check who owns the PR: `gh pr view --json author` against `gh api user -q .login`. **GitHub refuses an approval or a request for changes on your own PR**, so when the viewer is the author, pending is the only real option and the question is simply post or don't.
+
 **How to post:**
 
-- **Post as a pending review (recommended)**: comments land on the PR but stay invisible to others until the user submits.
-- **Post and submit**: same comments, submitted straight away. Ask which event: approve, request changes, or comment.
+- **Post as a pending review (recommended)**: comments land on the PR but stay invisible to others until the user submits. They pick the event themselves, which keeps the approve decision with the human.
+- **Post and submit**: same comments, submitted straight away. Ask which event: approve, request changes, or comment. Offer this only on someone else's PR.
 - **Don't post**: the report in the chat is enough.
 
 **What to post:**
@@ -164,7 +184,7 @@ Skip the second question when the two options would produce the same threads, fo
 
 If they want it posted, use the **`pr-comment-inline` skill** for the mechanics. Do not hand-roll the GraphQL, that skill already knows the node IDs, which lines GitHub accepts, and what to do when a file is not in the diff. Its comment rules apply as written, plus:
 
-- Lead each comment with its severity in bold: `**Medium.** ...`
+- Lead each comment with its severity in bold: `**Medium.** ...` The tiers and the `Why it blocks` lines have to survive into the comment bodies, they are the whole point of the grading.
 - The review body is one or two sentences. It does not repeat the threads.
 - A finding whose file or line is not in the PR diff goes in the body, with its `file:line` in the text.
 
@@ -172,10 +192,11 @@ Never submit an approval or a request for changes that the user did not ask for.
 
 ## Rules
 
+These are for you, the orchestrator. The reviewer's own rules live in its prompt and are not repeated here, one copy only so the two cannot drift apart.
+
 - **One sub-agent.** A single Opus reviewer, nothing else.
-- **Prove it or drop it.** No claim reaches the report without the diff, a verified fact, or a check that was run behind it. Say which parts you could not verify.
-- **Plain language, short.** Written for a junior dev. No em dashes. One line per finding where possible, no diff dumps, no filler.
-- **Every finding has a `file:line`.** Every High and Medium has a concrete fix.
-- **Blocked needs a High, or a Medium that passes the three-part test.** Both carry a `Why it blocks` line.
-- **Review only.** Never edit code. Never post or submit anything without asking first.
+- **Spot-check the verdict.** Re-run the one claim the verdict hangs on yourself before you render it.
+- **Keep it short.** No diff dumps, no filler, no em dashes anywhere in the report.
+- **Say what you trimmed.** Context that did not fit, and findings you cut, get a mention.
+- **Review only.** Never edit code. Never post or submit anything the user did not ask for.
 - **Label uncommitted findings** with `[uncommitted]` so the author knows they aren't part of the PR yet.
