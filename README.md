@@ -10,9 +10,17 @@ Acts as a Product Manager — explores the codebase, gathers requirements via in
 **Usage:** `/basilebong:pm-spec` or describe a feature you want to spec out.
 
 ### pr-reviewer
-Reviews the current branch's GitHub or GitLab PR using a single Opus sub-agent. Groups findings into High, Medium, and Minor, and closes with a clear Blocked or Approved verdict. Output is short and scannable — readable in under a minute.
+Reviews the current branch's GitHub or GitLab PR using a single Opus sub-agent. Groups findings into High, Medium, and Minor, and closes with a clear Blocked or Approved verdict. Output is short and scannable, readable in under a minute.
 
-Severity is graded on an absolute scale rather than ranked within the PR, so nothing gets promoted just to fill a section. Every finding runs a demotion gate before it's reported, and every High has to name the concrete failure scenario that blocks the merge. The gate cuts both ways — an exploitable path, data loss, or a silently wrong result stays High no matter how awkward the fix is.
+**Proof, not guesses.** Before the review runs, the facts it leans on get checked against the real thing: the installed package rather than the docs, the actual signature, the real call chain, what an assertion truly asserts. If a claim can be reproduced, it is. Anything that cannot be verified is labeled, and the unknown holds the finding down a tier instead of being assumed the worse way.
+
+**Severity is absolute**, graded per finding rather than ranked within the PR, so nothing gets promoted just to fill a section. Every finding runs a demotion gate first, and every High names the concrete failure scenario that blocks the merge. The gate cuts both ways: an exploitable path, data loss, or a silently wrong result stays High no matter how awkward the fix is.
+
+**A Medium can block too**, but only when it will actually happen, it fails quietly enough that nobody notices in time, and the fix is small and lives in the same diff. All three, or it is advice.
+
+**Written for a junior dev.** What breaks, who notices, what to change, in everyday words. No insider vocabulary.
+
+Finishes by asking whether to post the findings on the PR, pending or submitted, and whether to post everything or only what is worth fixing (a cheap Minor counts). The posting itself is handed to the `pr-comment-inline` skill.
 
 **Usage:** `/basilebong:pr-reviewer` (reviews the current branch's PR/MR).
 
