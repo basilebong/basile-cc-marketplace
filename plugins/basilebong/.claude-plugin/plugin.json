@@ -1,7 +1,7 @@
 {
   "name": "basilebong",
   "description": "Basile's personal Claude Code skills: pr-reviewer (single-agent PR review that proves its claims against the real code, grades findings High/Medium/Minor, blocks on a High or a Medium whose damage cannot be undone or would never be noticed, writes in plain language, and offers to post the findings to the PR), pr-comment-inline (posts a PR review with line-anchored inline comments through the GitHub GraphQL API, pending or submitted) and pm-spec (PM-style feature specs with lean user stories).",
-  "version": "4.5.0",
+  "version": "4.6.0",
   "author": {
     "name": "Basile Bong"
   }

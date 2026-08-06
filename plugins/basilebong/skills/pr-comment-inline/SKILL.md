@@ -19,7 +19,15 @@ If the user only wants a plain top-level comment (no line anchors), use `gh pr c
 
 **Write for a junior developer or a non-technical reader.** Someone who has never seen this codebase should understand what breaks and why. That is the bar, every time, unless the user says otherwise.
 
-- Short. Two to four sentences per comment. One idea per sentence.
+**Hard limits. Count them before you post, they are not aspirations.**
+
+- **Two to four sentences. Under 80 words. One paragraph.** If a fix genuinely needs its own paragraph, that second paragraph is one or two sentences and holds only the fix. Three paragraphs is always too many.
+- **At most two code identifiers in the whole comment**, counting function names, attribute names, settings, and filenames. The reader is already looking at the line, so `file:line` references are almost always waste. Pick the one or two names they need to act, describe everything else in plain words.
+- **The proof is a clause, not a paragraph.** "I reproduced it in the container" or "I read the outgoing message, it says X" is the whole receipt. Never list the line numbers you read, never walk through how the library resolves things. That belongs in the chat report, not the comment.
+- **Say each thing once.** If two sentences make the same point from different angles, delete one. Restating the problem in library terms after you already said it in plain words is the most common way these get bloated.
+
+Style:
+
 - Simple, casual, direct, polite.
 - Order: what breaks, who notices, what to change.
 - Everyday words. When you must name a file, function, or setting, add a few plain words on what it does.
@@ -27,7 +35,8 @@ If the user only wants a plain top-level comment (no line anchors), use `gh pr c
 - No insider vocabulary. Banned unless you explain it in plain words right there: coupling, leaky abstraction, surface area, graceful degradation, non-deterministic, idempotent, footgun, code smell, contract. Say what actually happens instead.
 - Avoid "I think", "maybe", "could you possibly". Say what you saw and what you would do.
 - When findings are graded, lead with the severity in bold: `**Medium.** ...`
-- Say what proves it, in a few words, when you checked something. "I reproduced it in the container" earns more trust than any amount of explaining.
+
+**Read it back before posting.** Ask: would someone who has never opened this repo follow it? Is any sentence there to prove I did the work rather than to help them fix it? Cut those. A comment that is half the length lands twice as often.
 
 Examples of the right tone:
 
@@ -40,6 +49,20 @@ Examples of the right tone:
 Too complicated, do not write this:
 
 > The process-wide env override leaks into an unrelated consumer, so KB retrieval silently degrades to an un-reranked path.
+
+Too long, do not write this either. Every sentence is true and it still fails, because it explains the library instead of the problem, names eight symbols, and turns the receipt into a paragraph:
+
+> **Medium.** The model name this sends to Azure is not the one you configured. `with_azure` puts the deployment name (`gpt-realtime-2.1`) only in the websocket address. It takes no model argument, so the setup message sent right after connecting always says `model: "gpt-realtime"`, the plugin's built-in default.
+>
+> If Azure acts on that field, every call quietly runs on plain `gpt-realtime` instead of the 2.1 model this PR is about, and nothing would tell you: `_model_span_attrs` reports the deployment name, so the span looks right.
+>
+> I built the model in the container with this exact call and rendered the outgoing payload: `session.model on the wire = gpt-realtime` while `_opts.azure_deployment = gpt-realtime-2.1`. The deployment only ever appears in the URL (`realtime_model.py:816-818`), and `_create_session_update_event` copies `_opts.model` into the message (`realtime_model.py:1250`).
+
+The same finding, inside the limits:
+
+> **Medium.** This asks Azure for `gpt-realtime`, not the `gpt-realtime-2.1` you configured. The deployment name only reaches Azure through the web address, while the setup message still carries the plugin's own default. If Azure goes by that message, calls quietly run on the older model and nothing looks wrong, because the tracing attribute prints your name either way. I built the model in the container and read the outgoing message, it says `gpt-realtime`.
+>
+> Worth confirming against a real Azure resource which model it reports back. If it is the wrong one, stay on `with_azure` and set the model parts by hand.
 
 ## The review body
 
@@ -224,7 +247,9 @@ For comments that should span a block, add `startLine` and `startSide`:
 - [ ] List of changed files from `pulls/N/files` checked against findings
 - [ ] Each inline finding mapped to a line that is in a hunk
 - [ ] Findings on files not in the diff moved to the body
-- [ ] Tone passes the smell test: a junior dev would understand it, short, plain words, no em dashes, no insider vocabulary
+- [ ] Every comment counted: four sentences or fewer, under 80 words, one paragraph (two only if the second is just the fix)
+- [ ] Every comment counted: two code identifiers at most, and the proof is a clause rather than a paragraph
+- [ ] Tone passes the smell test: a junior dev would understand it, plain words, no em dashes, no insider vocabulary, nothing said twice
 - [ ] Severity leads each comment when the findings are graded
 - [ ] Review body is one or two sentences and does not repeat the threads
 - [ ] `event` set to `APPROVE`, `REQUEST_CHANGES`, or `COMMENT` (whatever the user asked for)

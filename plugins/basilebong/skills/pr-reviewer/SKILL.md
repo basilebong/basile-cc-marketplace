@@ -187,6 +187,7 @@ If they want it posted, use the **`basilebong:pr-comment-inline` skill** for the
 - Lead each comment with its severity in bold: `**Medium.** ...` The tiers and the `Why it blocks` lines have to survive into the comment bodies, they are the whole point of the grading.
 - The review body is one or two sentences. It does not repeat the threads.
 - A finding whose file or line is not in the PR diff goes in the body, with its `file:line` in the text.
+- **Rewrite each finding for the comment, never paste the report entry.** The comment is shorter than what you showed in chat, not longer. The reader is sitting on the line, so drop the `file:line`, drop the alternatives you considered, and squeeze the `Proven:` line down to a clause. Four sentences, under 80 words, at most two code identifiers. A comment that grew while being posted is the failure mode here, and it is the most common one.
 
 Never submit an approval or a request for changes that the user did not ask for.
 
